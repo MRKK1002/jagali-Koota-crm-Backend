@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Department = require('../model/DepartmentModel');
+const Department = require('../model/departmentModel');
 
 // Get all departments
 router.get('/', async (req, res) => {
