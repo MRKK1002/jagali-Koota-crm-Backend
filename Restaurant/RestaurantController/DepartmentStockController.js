@@ -37,9 +37,15 @@ exports.deductByRecipe = async (req, res) => {
     const { items, department, branch, orderId, orderNumber } = req.body;
     // items: [{ menuItemId: "xxx", menuItemName: "Biryani", quantity: 2 }]
 
-    if (!items || !department || !branch) {
-      return res.status(400).json({ success: false, message: "items, department, and branch are required" });
+    if (!items || !branch) {
+      return res.status(400).json({ success: false, message: "items and branch are required" });
     }
+
+    console.log(`[deductByRecipe] Received webhook - Order: ${orderNumber}, Branch: ${branch}, Department: ${department}, Items: ${items.length}`);
+    console.log(`[deductByRecipe] Items:`, items.map(i => `${i.menuItemName}(${i.menuItemId}) x${i.quantity}`).join(', '));
+
+    // Use provided department as fallback, default to "Kitchen"
+    const fallbackDepartment = department || "Kitchen";
 
     const deductions = [];
     const shortages = [];
@@ -52,13 +58,16 @@ exports.deductByRecipe = async (req, res) => {
         continue;
       }
 
+      // Use department from recipe if available, otherwise use fallback
+      const stockDepartment = (recipe.department && recipe.department.trim()) ? recipe.department : fallbackDepartment;
+
       // For each ingredient in recipe, calculate needed qty
       for (const ingredient of recipe.ingredients) {
         const neededQty = ingredient.quantity * orderItem.quantity;
 
-        // Find department stock entry
+        // Find department stock entry - use recipe's department
         const stock = await DepartmentStock.findOne({
-          department,
+          department: stockDepartment,
           branch,
           rawMaterial: ingredient.rawMaterial,
         });
@@ -85,6 +94,7 @@ exports.deductByRecipe = async (req, res) => {
           unit: ingredient.unit,
           menuItem: orderItem.menuItemName || recipe.menuItemName,
           orderQuantity: orderItem.quantity,
+          department: stockDepartment,
         });
       }
     }
@@ -93,7 +103,7 @@ exports.deductByRecipe = async (req, res) => {
     const ConsumptionLog = require("../RestautantModel/ConsumptionLogModel");
     if (deductions.length > 0) {
       await ConsumptionLog.create({
-        department,
+        department: deductions[0]?.department || fallbackDepartment,
         branch,
         orderId: orderId || null,
         orderNumber: orderNumber || null,
