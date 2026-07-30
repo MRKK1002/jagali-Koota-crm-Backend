@@ -144,6 +144,11 @@ const rawMaterialSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    code: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     category: {
       type: String,
       required: true,

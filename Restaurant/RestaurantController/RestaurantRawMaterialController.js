@@ -346,6 +346,7 @@ exports.getAllRawMaterials = async (req, res) => {
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
+        { code: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
       ]
     }
@@ -410,11 +411,7 @@ exports.getRawMaterialById = async (req, res) => {
 // ---------------- Create raw material ----------------
 exports.createRawMaterial = async (req, res) => {
   try {
-    console.log("=== CREATE RAW MATERIAL REQUEST ===");
-    console.log("Request body:", req.body);
-    console.log("Request body keys:", Object.keys(req.body));
-    
-    const { name, category, unit, suppliers = [], minLevel, description } = req.body
+    const { name, code, category, unit, suppliers = [], minLevel, description } = req.body
 
     // Validate required fields
     if (!name || !unit) {
@@ -423,32 +420,20 @@ exports.createRawMaterial = async (req, res) => {
         error: "Name and unit are required fields" 
       })
     }
-    
-    console.log("Extracted values:", { name, category, unit, suppliers, minLevel, description });
 
     const existingMaterial = await RawMaterial.findOne({ name: { $regex: new RegExp(`^${name}$`, "i") } })
     if (existingMaterial) {
       return res.status(400).json({ success: false, error: "Material with this name already exists" })
     }
 
-    // Provide default values for required fields
-    // Handle category - use provided value, or default to "General" if empty/null/undefined
     const categoryValue = (category && category.trim()) ? category.trim() : "General";
-    
-    console.log("Final material data:", {
-      name: name.trim(),
-      category: categoryValue,
-      unit: unit.trim(),
-      suppliers: Array.isArray(suppliers) ? suppliers : [],
-      minLevel: Number(minLevel) || 5,
-      description: description || "",
-    });
     
     const material = new RawMaterial({
       name: name.trim(),
+      code: code || "",
       category: categoryValue,
       unit: unit.trim(),
-      suppliers: Array.isArray(suppliers) ? suppliers : [], // Ensure it's an array
+      suppliers: Array.isArray(suppliers) ? suppliers : [],
       minLevel: Number(minLevel) || 5,
       description: description || "",
       distributionUnit: req.body.distributionUnit || null,
@@ -471,7 +456,7 @@ exports.createRawMaterial = async (req, res) => {
 // ---------------- Update raw material ----------------
 exports.updateRawMaterial = async (req, res) => {
   try {
-    const { name, category, unit, suppliers, minLevel, description } = req.body
+    const { name, code, category, unit, suppliers, minLevel, description } = req.body
     
     // Get existing material to preserve fields if not provided
     const existingMaterial = await RawMaterial.findById(req.params.id)
@@ -493,6 +478,7 @@ exports.updateRawMaterial = async (req, res) => {
     // Build update data, preserving existing values if not provided
     const updateData = {}
     if (name !== undefined) updateData.name = name.trim()
+    if (code !== undefined) updateData.code = code
     if (category !== undefined) updateData.category = category
     else updateData.category = existingMaterial.category || "General" // Preserve or default
     if (unit !== undefined) updateData.unit = unit.trim()
