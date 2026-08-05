@@ -217,7 +217,6 @@ const hrsPayrollRoutes       = require("./routes/payrollRoutesConstruction");
 const simpleAttendanceRoutes = require("./routes/simpleAttendanceRoutes");
 const holidayRoutes          = require("./routes/holidayRoutes");
 const probationRoutes        = require("./routes/probationRoutes");
-// Finance
 const accountsRoutes         = require("./routes/accountsRoutes");
 const journalRoutes          = require("./routes/journalRoutes");
 const ledgerRoutes           = require("./routes/ledgerRoutes");
@@ -225,7 +224,6 @@ const financialStatementRoutes = require("./routes/financialStatementRoutes");
 const taxRoutes              = require("./routes/taxRoutes");
 const expenseAdminRoutes     = require("./routes/expenseAdminRoutes");
 const accountantExpenseRoutes = require("./routes/accountantExpenseRoutes");
-// CRM / Sales
 const crmRoutes              = require("./routes/crmRoutes");
 const salesRoutes            = require("./routes/salesRoutes");
 const leadRoutes             = require("./routes/leadRoutes");
@@ -235,7 +233,6 @@ const communicationRoutes    = require("./routes/communicationRoutes");
 const ticketRoutes           = require("./routes/ticketRoutes");
 const contractRoutes         = require("./routes/contractRoutes");
 const deliveryRoutes         = require("./routes/deliveryRoutes");
-// Misc
 const notificationRoutes     = require("./routes/notificationRoutes");
 const approvalRoutes         = require("./routes/approvalRoutes");
 const securityRoutes         = require("./routes/securityRoutes");
@@ -338,16 +335,12 @@ app.use("/api/v1/employee/attendance",        employeeAttendanceRoutes);
 app.use("/api/v1/config/employee",            employeeRoutes);
 app.use("/api/v1/config/departments",         departmentRoutes);
 app.use("/api/v1/config/configuration",       configurationRoutes);
-
-// Finance
 app.use("/api/v1/accounts",                   accountsRoutes);
 app.use("/api/v1/journal",                    journalRoutes);
 app.use("/api/v1/ledger",                     ledgerRoutes);
 app.use("/api/v1/financial-statements",       financialStatementRoutes);
 app.use("/api/v1/tax",                        taxRoutes);
 app.use("/api/accountant",                    accountantExpenseRoutes);
-
-// Settings / Auth
 app.use("/api/v1/subadmin",                   subAdminRoutes);
 app.use("/api/v1/auth",                       authUser);
 app.use("/api/v1/common/transfers",           transferRoutes);
@@ -367,14 +360,10 @@ app.use("/ticket",                            ticketRoutes);
 app.use("/contract",                          contractRoutes);
 app.use("/delivery",                          deliveryRoutes);
 app.use("/salesOrder",                        salesRoutes);
-
-// Notifications / Approvals / Security
 app.use("/api/v1/notifications",              notificationRoutes);
 app.use("/api/v1/approvals",                  approvalRoutes);
 app.use("/api/v1/security",                   securityRoutes);
 app.use("/auditLog",                          auditLogRoutes);
-
-// Misc
 app.use("/api/new-recipe-requirements",       newRecipeRequirementRoutes);
 app.use("/api/v1/hotel/restaurant-menu",      restaurantMenuRoutes);
 app.use("/api/users",                         userRoutes);
@@ -396,8 +385,6 @@ app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/") || req.path.startsWith("/UOM")) return next();
   return res.sendFile(path.join(__dirname, "build", "index.html"));
 });
-
-// ─── Start Server ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 const http = require("http");
 const { initializeSocketIO } = require("./socketio");
@@ -414,5 +401,4 @@ if (process.env.NODE_ENV !== "test") {
 } else {
   module.exports = app;
 }
-
 module.exports = { app, server };

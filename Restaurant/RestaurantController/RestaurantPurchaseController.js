@@ -291,9 +291,52 @@ console.log("PurchaseOrder model loaded:", {
 });
 
 // Get all purchase orders
+// Supported query params (all optional — omitting them keeps the old behaviour):
+//   search        text match on purchaseOrderId / invoiceNumber / supplierName
+//   month         "YYYY-MM" — filters on orderDate
+//   status        Pending | Approved | In Transit | Delivered | Cancelled
+//   paymentStatus Pending | Partial | Paid
+//   supplierId    ObjectId
+//   page, limit   pagination; when supplied, response includes `pagination`
+//
+// Filtering happens in MongoDB rather than in the browser so the client no
+// longer downloads every purchase order just to filter a handful.
 exports.getAll = async (req, res) => {
   try {
-    const orders = await PurchaseOrder.find()
+    const { search, month, status, paymentStatus, supplierId, page, limit } = req.query;
+
+    const query = {};
+
+    if (status && status !== "all") query.status = status;
+    if (paymentStatus && paymentStatus !== "all") query.paymentStatus = paymentStatus;
+    if (supplierId && mongoose.isValidObjectId(supplierId)) query.supplierId = supplierId;
+
+    // month = "YYYY-MM" -> [start of month, start of next month)
+    if (month && month !== "all" && /^\d{4}-\d{2}$/.test(month)) {
+      const [y, m] = month.split("-").map(Number);
+      query.orderDate = {
+        $gte: new Date(y, m - 1, 1),
+        $lt: new Date(y, m, 1),
+      };
+    }
+
+    if (search && search.trim()) {
+      // escape regex metacharacters so a user typing "(" doesn't error
+      const safe = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(safe, "i");
+      query.$or = [
+        { purchaseOrderId: rx },
+        { invoiceNumber: rx },
+        { supplierName: rx },
+        { "branch.name": rx },
+      ];
+    }
+
+    const usePaging = page !== undefined || limit !== undefined;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const perPage = Math.min(500, Math.max(1, parseInt(limit) || 25));
+
+    let q = PurchaseOrder.find(query)
       .populate("supplierId", "name supplierID")
       .populate("categoryId", "name")
       .populate("storeLocationId", "name")
@@ -303,6 +346,13 @@ exports.getAll = async (req, res) => {
         select: "name"
       })
       .sort({ createdAt: -1 });
+
+    if (usePaging) q = q.skip((pageNum - 1) * perPage).limit(perPage);
+
+    const [orders, totalCount] = await Promise.all([
+      q.exec(),
+      usePaging ? PurchaseOrder.countDocuments(query) : Promise.resolve(undefined),
+    ]);
 
     // Fetch all restaurant profiles to populate branch data
     const restaurantProfiles = await RestaurantProfile.find().lean();
@@ -416,10 +466,24 @@ exports.getAll = async (req, res) => {
       return orderObj;
     });
 
-    res.json({
+    const payload = {
       success: true,
       data: ordersWithStoreLocation
-    });
+    };
+
+    // Only present when the caller asked for a page — keeps older callers,
+    // which expect just { success, data }, working unchanged.
+    if (usePaging) {
+      payload.pagination = {
+        total: totalCount,
+        page: pageNum,
+        limit: perPage,
+        totalPages: Math.ceil(totalCount / perPage),
+        hasMore: pageNum * perPage < totalCount,
+      };
+    }
+
+    res.json(payload);
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -427,7 +491,6 @@ exports.getAll = async (req, res) => {
     });
   }
 };
-
 // Get a single purchase order by ID
 exports.getOne = async (req, res) => {
   try {
@@ -548,7 +611,6 @@ exports.getOne = async (req, res) => {
     });
   }
 };
-
 // Create a new purchase order
 exports.create = async (req, res) => {
   try {
@@ -773,7 +835,6 @@ exports.create = async (req, res) => {
     });
   }
 };
-
 // Update a purchase order
 exports.update = async (req, res) => {
   try {
@@ -900,7 +961,6 @@ exports.update = async (req, res) => {
     });
   }
 };
-
 // Delete a purchase order
 exports.remove = async (req, res) => {
   try {
@@ -922,7 +982,6 @@ exports.remove = async (req, res) => {
     });
   }
 };
-
 // Get pending purchase orders
 exports.getPendingPOs = async (req, res) => {
   try {
@@ -946,7 +1005,6 @@ exports.getPendingPOs = async (req, res) => {
     });
   }
 };
-
 // Update PO status
 exports.updateStatus = async (req, res) => {
   try {
@@ -988,7 +1046,6 @@ exports.updateStatus = async (req, res) => {
     });
   }
 };
-
 // Update payment status
 exports.updatePaymentStatus = async (req, res) => {
   try {
@@ -1030,7 +1087,6 @@ exports.updatePaymentStatus = async (req, res) => {
     });
   }
 };
-
 // Get PO statistics
 exports.getPOStats = async (req, res) => {
   try {
@@ -1089,7 +1145,6 @@ exports.getPOStats = async (req, res) => {
     });
   }
 };
-
 // Get GRNs linked to a PO
 exports.getPOGRNs = async (req, res) => {
   try {
