@@ -10,6 +10,10 @@ const itemSchema = new mongoose.Schema({
   receivedQty: { type: Number, default: 0 }, // Track received quantity
   unit: { type: String, required: true },
   rate: { type: Number, required: true },
+  // Per-item tax percentage — each raw material can carry a different rate.
+  // `amount` is stored inclusive of this tax: (qty * rate) + tax.
+  tax: { type: Number, default: 0 },
+  taxAmount: { type: Number, default: 0 },
   amount: { type: Number, required: true },
 });
 
