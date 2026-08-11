@@ -244,6 +244,73 @@ class GRNController {
         }
       }
 
+      // Sync to LocationInventory when GRN status is "Received" or "Approved"
+      // This enables department-wise distribution from the Store Inventory system
+      const grnStatus = (grnData.status || '').toLowerCase();
+      if (grnStatus === 'received' || grnStatus === 'approved') {
+        try {
+          const RawMaterial = require('../RestautantModel/RestaurantRawMaterialModel');
+          const { LocationInventory, StockTransaction } = Inventory;
+          const storeLocationId = grnData.storeLocationId || grnData.storeLocation?.id;
+
+          if (storeLocationId) {
+            for (const item of (grnData.items || [])) {
+              const acceptedQty = Number(item.acceptedQty || item.receivedQty || item.quantity || 0);
+              if (acceptedQty <= 0) continue;
+
+              // Find the raw material by name
+              const rawMaterial = await RawMaterial.findOne({ name: item.product });
+              if (!rawMaterial) {
+                console.warn(`⚠️ LocationInventory sync: Raw material "${item.product}" not found, skipping`);
+                continue;
+              }
+
+              // Find or create LocationInventory record
+              let locInv = await LocationInventory.findOne({
+                locationId: storeLocationId,
+                rawMaterialId: rawMaterial._id,
+              });
+
+              if (locInv) {
+                locInv.quantity += acceptedQty;
+                locInv.costPrice = item.rate || locInv.costPrice;
+                locInv.lastUpdated = new Date();
+                await locInv.save();
+              } else {
+                locInv = new LocationInventory({
+                  locationId: storeLocationId,
+                  rawMaterialId: rawMaterial._id,
+                  quantity: acceptedQty,
+                  costPrice: item.rate || 0,
+                  lastUpdated: new Date(),
+                });
+                await locInv.save();
+              }
+
+              // Create inward stock transaction
+              const transaction = new StockTransaction({
+                type: 'inward',
+                locationId: storeLocationId,
+                rawMaterialId: rawMaterial._id,
+                quantity: acceptedQty,
+                costPrice: item.rate || 0,
+                reference: finalGRNNumber || grn.grnNumber,
+                source: 'GRN Received',
+                notes: `From GRN ${finalGRNNumber || grn.grnNumber}, Supplier: ${grnData.supplier || ''}`,
+              });
+              await transaction.save();
+
+              console.log(`📦 LocationInventory synced: ${item.product} +${acceptedQty} → Store ${storeLocationId}`);
+            }
+          } else {
+            console.warn('⚠️ LocationInventory sync skipped: no storeLocationId on GRN');
+          }
+        } catch (syncError) {
+          console.error('⚠️ LocationInventory sync error (GRN still created):', syncError.message);
+          // Don't fail GRN creation if sync fails
+        }
+      }
+
       res.status(201).json({
         status: 'success',
         message: 'GRN created successfully',
@@ -746,8 +813,6 @@ class GRNController {
       });
     }
   }
-
-  // Reject GRN
   async rejectGRN(req, res) {
     try {
       const { id } = req.params;
@@ -793,8 +858,6 @@ class GRNController {
       });
     }
   }
-
-  // Delete GRN
   async deleteGRN(req, res) {
     try {
       const { id } = req.params;
@@ -839,8 +902,6 @@ class GRNController {
       });
     }
   }
-
-  // Get GRN statistics
   async getGRNStats(req, res) {
     try {
       const [
@@ -882,5 +943,4 @@ class GRNController {
     }
   }
 }
-
 module.exports = new GRNController();
