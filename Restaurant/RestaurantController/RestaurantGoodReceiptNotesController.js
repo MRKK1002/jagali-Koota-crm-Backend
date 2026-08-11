@@ -271,7 +271,7 @@ class GRNController {
       
       if (error.code === 11000) {
         // If it's a manual entry and we still get a duplicate key error, try one more time
-        if (wasManualEntry) {
+        if (isManualEntry) {
           console.warn('⚠️ Duplicate key error for manual entry, attempting recovery...');
           try {
             const timestamp = Date.now();
