@@ -882,7 +882,7 @@ class GRNController {
           const RawMaterial = require('../RestautantModel/RestaurantRawMaterialModel');
           const { LocationInventory } = Inventory;
           const StoreLocationModel = require('../RestautantModel/RestaurantStoreLocationModel');
-          const storeDoc = await StoreLocationModel.findOne({ name: grn.storeType });
+          const storeDoc = await StoreLocationModel.findOne({ name: { $regex: new RegExp(`^${grn.storeType.trim()}$`, 'i') } });
 
           if (storeDoc) {
             for (const item of (grn.items || [])) {

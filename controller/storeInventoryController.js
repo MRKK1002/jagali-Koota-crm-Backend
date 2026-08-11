@@ -498,8 +498,8 @@ exports.transferStock = async (req, res) => {
     // Sync LocationInventory: deduct from source, add to destination
     try {
       const rawMaterial = await RawMaterial.findOne({ name: productName })
-      const fromStoreDoc = await StoreLocation.findOne({ name: fromStore })
-      const toStoreDoc = await StoreLocation.findOne({ name: toStore })
+      const fromStoreDoc = await StoreLocation.findOne({ name: { $regex: new RegExp(`^${fromStore.trim()}$`, 'i') } })
+      const toStoreDoc = await StoreLocation.findOne({ name: { $regex: new RegExp(`^${toStore.trim()}$`, 'i') } })
 
       if (rawMaterial && fromStoreDoc) {
         const fromLocInv = await LocationInventory.findOne({

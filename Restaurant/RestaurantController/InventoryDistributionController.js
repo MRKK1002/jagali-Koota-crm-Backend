@@ -106,7 +106,7 @@ exports.createDistribution = async (req, res) => {
     try {
       const { LocationInventory } = require('../../model/inventoryModel');
       const StoreLocationModel = require('../RestautantModel/RestaurantStoreLocationModel');
-      const storeDoc = await StoreLocationModel.findOne({ name: storeLocation });
+      const storeDoc = await StoreLocationModel.findOne({ name: { $regex: new RegExp(`^${storeLocation.trim()}$`, 'i') } });
       const matDoc = await RawMaterial.findOne({ name: productName });
       if (storeDoc && matDoc) {
         const locInv = await LocationInventory.findOne({
