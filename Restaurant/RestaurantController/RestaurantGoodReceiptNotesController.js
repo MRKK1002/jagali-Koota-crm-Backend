@@ -311,7 +311,6 @@ class GRNController {
           // Don't fail GRN creation if sync fails
         }
       }
-
       res.status(201).json({
         status: 'success',
         message: 'GRN created successfully',
@@ -378,8 +377,6 @@ class GRNController {
       });
     }
   }
-
-  // Get all GRNs with pagination and filtering
   async getAllGRNs(req, res) {
     try {
       const {
@@ -476,8 +473,6 @@ class GRNController {
       });
     }
   }
-
-  // Get single GRN by ID
   async getGRNById(req, res) {
     try {
       const { id } = req.params;
@@ -528,8 +523,6 @@ class GRNController {
       });
     }
   }
-
-  // Get GRN by GRN Number
   async getGRNByNumber(req, res) {
     try {
       const { grnNumber } = req.params;
@@ -573,8 +566,6 @@ class GRNController {
       });
     }
   }
-
-  // Update GRN
   async updateGRN(req, res) {
     try {
       const { id } = req.params;
@@ -767,8 +758,6 @@ class GRNController {
       });
     }
   }
-
-  // Approve GRN
   async approveGRN(req, res) {
     try {
       const { id } = req.params;
@@ -885,6 +874,37 @@ class GRNController {
           status: 'error',
           message: 'Cannot delete approved GRN. Add ?force=true to override.'
         });
+      }
+
+      // Reverse LocationInventory before deleting
+      if (grn.storeLocationId || grn.storeLocation?.id) {
+        try {
+          const RawMaterial = require('../RestautantModel/RestaurantRawMaterialModel');
+          const { LocationInventory } = Inventory;
+          const storeLocId = grn.storeLocationId || grn.storeLocation?.id;
+
+          for (const item of (grn.items || [])) {
+            const acceptedQty = Number(item.acceptedQty || item.receivedQty || item.quantity || 0);
+            if (acceptedQty <= 0) continue;
+
+            const rawMaterial = await RawMaterial.findOne({ name: item.product });
+            if (!rawMaterial) continue;
+
+            const locInv = await LocationInventory.findOne({
+              locationId: storeLocId,
+              rawMaterialId: rawMaterial._id,
+            });
+
+            if (locInv) {
+              locInv.quantity = Math.max(0, locInv.quantity - acceptedQty);
+              locInv.lastUpdated = new Date();
+              await locInv.save();
+              console.log(`📦 LocationInventory reversed: ${item.product} -${acceptedQty} from store ${storeLocId}`);
+            }
+          }
+        } catch (syncErr) {
+          console.error('⚠️ LocationInventory reversal error:', syncErr.message);
+        }
       }
 
       await GoodsReceiptNote.findByIdAndDelete(id);

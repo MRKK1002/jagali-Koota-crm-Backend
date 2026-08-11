@@ -641,6 +641,36 @@ exports.create = async (req, res) => {
       });
     }
 
+    // Validate items
+    if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "At least one item is required"
+      });
+    }
+
+    for (let i = 0; i < body.items.length; i++) {
+      const item = body.items[i];
+      if (!item.quantity || Number(item.quantity) <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Item ${i + 1}: Quantity must be greater than 0`
+        });
+      }
+      if (item.rate !== undefined && Number(item.rate) < 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Item ${i + 1}: Rate cannot be negative`
+        });
+      }
+      if (item.tax !== undefined && (Number(item.tax) < 0 || Number(item.tax) > 100)) {
+        return res.status(400).json({
+          success: false,
+          error: `Item ${i + 1}: Tax must be between 0 and 100`
+        });
+      }
+    }
+
     // Convert to ObjectId if provided
     if (body.categoryId) {
       body.categoryId = new mongoose.Types.ObjectId(body.categoryId);
@@ -964,6 +994,16 @@ exports.update = async (req, res) => {
 // Delete a purchase order
 exports.remove = async (req, res) => {
   try {
+    // Check if any GRN references this PO
+    const GoodsReceiptNote = require('../RestautantModel/RestaurantGoodReceiptNotesmodel');
+    const linkedGRNs = await GoodsReceiptNote.find({ poId: req.params.id });
+    if (linkedGRNs.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot delete PO — ${linkedGRNs.length} GRN(s) reference it (${linkedGRNs.map(g => g.grnNumber).join(', ')}). Delete the GRN(s) first.`
+      });
+    }
+
     const order = await PurchaseOrder.findByIdAndDelete(req.params.id);
 
     if (!order) return res.status(404).json({

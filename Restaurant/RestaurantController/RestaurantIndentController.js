@@ -4,7 +4,7 @@ const RawMaterial = require("../RestautantModel/RestaurantRawMaterialModel");
 const UnitConversion = require("../../model/UnitConversionModel");
 const { addStock } = require("./DepartmentStockController");
 
-// Helper: get conversion factor between units
+
 async function getConversionFactor(fromUnit, toUnit) {
   if (fromUnit === toUnit) return 1;
   let conv = await UnitConversion.findOne({ fromUnit, toUnit });
@@ -16,8 +16,6 @@ async function getConversionFactor(fromUnit, toUnit) {
 
   return null;
 }
-
-// Create a new indent (status = Pending)
 exports.createIndent = async (req, res) => {
   try {
     const {
@@ -60,8 +58,6 @@ exports.createIndent = async (req, res) => {
     });
   }
 };
-
-// Get all indents with optional filters (status, department, branch, date range)
 exports.getAllIndents = async (req, res) => {
   try {
     const { status, department, branch, startDate, endDate } = req.query;
@@ -92,8 +88,6 @@ exports.getAllIndents = async (req, res) => {
     });
   }
 };
-
-// Get single indent by ID
 exports.getIndentById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -119,8 +113,6 @@ exports.getIndentById = async (req, res) => {
     });
   }
 };
-
-// HOD Approve/Partially Approve/Reject indent
 exports.hodApproveIndent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -203,8 +195,6 @@ exports.hodApproveIndent = async (req, res) => {
     });
   }
 };
-
-// Store Approve and Issue material (with FIFO deduction from GRN)
 exports.storeApproveAndIssue = async (req, res) => {
   try {
     const { id } = req.params;
@@ -323,6 +313,28 @@ exports.storeApproveAndIssue = async (req, res) => {
       } catch (deptErr) {
         console.error(`⚠️ Error crediting department stock for ${item.productName}:`, deptErr.message);
       }
+
+      // Also deduct from LocationInventory (keeps department distribution system in sync)
+      try {
+        const { LocationInventory } = require('../../model/inventoryModel');
+        const StoreLocation = require('../../model/storeLocationModel');
+        // Find the source store by matching indent's fromStoreId or branch
+        const fromStoreId = indent.fromStoreId;
+        if (fromStoreId && item.rawMaterial) {
+          const locInv = await LocationInventory.findOne({
+            locationId: fromStoreId,
+            rawMaterialId: item.rawMaterial,
+          });
+          if (locInv && locInv.quantity >= baseQtyToDeduct) {
+            locInv.quantity -= baseQtyToDeduct;
+            locInv.lastUpdated = new Date();
+            await locInv.save();
+            console.log(`📦 LocationInventory deducted: ${item.productName} -${baseQtyToDeduct} from store ${fromStoreId}`);
+          }
+        }
+      } catch (syncErr) {
+        console.warn('⚠️ LocationInventory sync in indent issue:', syncErr.message);
+      }
     }
 
     // Update indent status and store approval
@@ -350,8 +362,6 @@ exports.storeApproveAndIssue = async (req, res) => {
     });
   }
 };
-
-// Cancel an indent (only if status is "Pending")
 exports.cancelIndent = async (req, res) => {
   try {
     const { id } = req.params;
@@ -389,8 +399,6 @@ exports.cancelIndent = async (req, res) => {
     });
   }
 };
-
-// Get indents by department
 exports.getIndentsByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
@@ -411,8 +419,6 @@ exports.getIndentsByDepartment = async (req, res) => {
     });
   }
 };
-
-// Get all pending indents for HOD dashboard (status = "Pending")
 exports.getPendingForHOD = async (req, res) => {
   try {
     const indents = await Indent.find({ status: "Pending" }).sort({
@@ -433,8 +439,6 @@ exports.getPendingForHOD = async (req, res) => {
     });
   }
 };
-
-// Get all HOD-approved indents for Store Manager dashboard
 exports.getPendingForStore = async (req, res) => {
   try {
     const indents = await Indent.find({

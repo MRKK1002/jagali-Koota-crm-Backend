@@ -495,6 +495,51 @@ exports.transferStock = async (req, res) => {
       await grn.save()
     }
 
+    // Sync LocationInventory: deduct from source, add to destination
+    try {
+      const RawMaterial = require("../Restaurant/RestautantModel/RestaurantRawMaterialModel")
+      const StoreLocationModel = require("../model/storeLocationModel")
+      const rawMaterial = await RawMaterial.findOne({ name: productName })
+      const fromStoreDoc = await StoreLocationModel.findOne({ name: fromStore })
+      const toStoreDoc = await StoreLocationModel.findOne({ name: toStore })
+
+      if (rawMaterial && fromStoreDoc) {
+        const fromLocInv = await LocationInventory.findOne({
+          locationId: fromStoreDoc._id,
+          rawMaterialId: rawMaterial._id,
+        })
+        if (fromLocInv) {
+          fromLocInv.quantity = Math.max(0, fromLocInv.quantity - Number(quantity))
+          fromLocInv.lastUpdated = new Date()
+          await fromLocInv.save()
+        }
+      }
+
+      if (rawMaterial && toStoreDoc) {
+        let toLocInv = await LocationInventory.findOne({
+          locationId: toStoreDoc._id,
+          rawMaterialId: rawMaterial._id,
+        })
+        if (toLocInv) {
+          toLocInv.quantity += Number(quantity)
+          toLocInv.lastUpdated = new Date()
+          await toLocInv.save()
+        } else {
+          toLocInv = new LocationInventory({
+            locationId: toStoreDoc._id,
+            rawMaterialId: rawMaterial._id,
+            quantity: Number(quantity),
+            costPrice: matchingItems[0]?.grn?.items?.[matchingItems[0]?.idx]?.rate || 0,
+            lastUpdated: new Date(),
+          })
+          await toLocInv.save()
+        }
+      }
+      console.log(`📦 LocationInventory synced for transfer: ${productName} -${quantity} from ${fromStore}, +${quantity} to ${toStore}`)
+    } catch (syncErr) {
+      console.warn("⚠️ LocationInventory sync in transfer:", syncErr.message)
+    }
+
     res.status(200).json({
       success: true,
       message: `Transferred ${quantity} of "${productName}" from "${fromStore}" to "${toStore}"`,

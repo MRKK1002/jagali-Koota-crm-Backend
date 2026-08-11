@@ -101,6 +101,27 @@ exports.createDistribution = async (req, res) => {
     } else {
       console.log(`✅ Successfully distributed ${quantityDistributed} ${distributionUnit || 'units'} (${baseQuantityDeducted} in base unit)`);
     }
+
+    // Also deduct from LocationInventory (keeps department distribution system in sync)
+    try {
+      const { LocationInventory } = require('../../model/inventoryModel');
+      const StoreLocation = require('../../model/storeLocationModel');
+      const storeDoc = await StoreLocation.findOne({ name: storeLocation });
+      if (storeDoc && rawMaterial) {
+        const locInv = await LocationInventory.findOne({
+          locationId: storeDoc._id,
+          rawMaterialId: rawMaterial._id,
+        });
+        if (locInv && locInv.quantity >= baseQuantityDeducted) {
+          locInv.quantity -= baseQuantityDeducted;
+          locInv.lastUpdated = new Date();
+          await locInv.save();
+          console.log(`📦 LocationInventory also deducted: ${productName} -${baseQuantityDeducted} from ${storeLocation}`);
+        }
+      }
+    } catch (syncErr) {
+      console.warn('⚠️ LocationInventory sync in direct distribution:', syncErr.message);
+    }
     
     res.status(201).json({
       success: true,
