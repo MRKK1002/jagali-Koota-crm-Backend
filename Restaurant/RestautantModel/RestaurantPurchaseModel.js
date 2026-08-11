@@ -161,14 +161,16 @@ purchaseOrdersSchema.pre("save", async function (next) {
   if (!this.invoiceNumber) {
     const lastInvoice = await mongoose
       .model("RestaurantPurchaseOrder")
-      .findOne({ invoiceNumber: { $ne: null } })
+      .findOne({ invoiceNumber: /^INV-\d+$/ })
       .sort({ createdAt: -1 });
     
     let newInvoiceNumber = "INV-00001";
 
     if (lastInvoice && lastInvoice.invoiceNumber) {
       const lastInvNumber = parseInt(lastInvoice.invoiceNumber.split('-')[1]);
-      newInvoiceNumber = `INV-${String(lastInvNumber + 1).padStart(5, "0")}`;
+      if (!isNaN(lastInvNumber)) {
+        newInvoiceNumber = `INV-${String(lastInvNumber + 1).padStart(5, "0")}`;
+      }
     }
 
     this.invoiceNumber = newInvoiceNumber;
