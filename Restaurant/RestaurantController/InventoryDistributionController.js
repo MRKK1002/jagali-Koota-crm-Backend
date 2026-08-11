@@ -105,8 +105,8 @@ exports.createDistribution = async (req, res) => {
     // Also deduct from LocationInventory (keeps department distribution system in sync)
     try {
       const { LocationInventory } = require('../../model/inventoryModel');
-      const StoreLocation = require('../../model/storeLocationModel');
-      const storeDoc = await StoreLocation.findOne({ name: storeLocation });
+      const StoreLocationModel = require('../RestautantModel/RestaurantStoreLocationModel');
+      const storeDoc = await StoreLocationModel.findOne({ name: storeLocation });
       const matDoc = await RawMaterial.findOne({ name: productName });
       if (storeDoc && matDoc) {
         const locInv = await LocationInventory.findOne({
@@ -117,8 +117,12 @@ exports.createDistribution = async (req, res) => {
           locInv.quantity -= baseQuantityDeducted;
           locInv.lastUpdated = new Date();
           await locInv.save();
-          console.log(`📦 LocationInventory also deducted: ${productName} -${baseQuantityDeducted} from ${storeLocation}`);
+          console.log(`📦 LocationInventory also deducted: ${productName} -${baseQuantityDeducted} from ${storeLocation} (now ${locInv.quantity})`);
+        } else {
+          console.warn(`⚠️ LocationInventory: no record or insufficient qty for ${productName} in ${storeLocation}`);
         }
+      } else {
+        console.warn(`⚠️ Direct dist sync: storeDoc=${!!storeDoc} matDoc=${!!matDoc} for "${storeLocation}" / "${productName}"`);
       }
     } catch (syncErr) {
       console.warn('⚠️ LocationInventory sync in direct distribution:', syncErr.message);

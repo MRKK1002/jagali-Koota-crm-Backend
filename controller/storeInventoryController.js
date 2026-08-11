@@ -497,11 +497,9 @@ exports.transferStock = async (req, res) => {
 
     // Sync LocationInventory: deduct from source, add to destination
     try {
-      const RawMaterial = require("../Restaurant/RestautantModel/RestaurantRawMaterialModel")
-      const StoreLocationModel = require("../model/storeLocationModel")
       const rawMaterial = await RawMaterial.findOne({ name: productName })
-      const fromStoreDoc = await StoreLocationModel.findOne({ name: fromStore })
-      const toStoreDoc = await StoreLocationModel.findOne({ name: toStore })
+      const fromStoreDoc = await StoreLocation.findOne({ name: fromStore })
+      const toStoreDoc = await StoreLocation.findOne({ name: toStore })
 
       if (rawMaterial && fromStoreDoc) {
         const fromLocInv = await LocationInventory.findOne({
@@ -512,7 +510,12 @@ exports.transferStock = async (req, res) => {
           fromLocInv.quantity = Math.max(0, fromLocInv.quantity - Number(quantity))
           fromLocInv.lastUpdated = new Date()
           await fromLocInv.save()
+          console.log(`📦 LocationInventory deducted: ${productName} -${quantity} from ${fromStore} (now ${fromLocInv.quantity})`)
+        } else {
+          console.warn(`⚠️ No LocationInventory record for ${productName} in ${fromStore}`)
         }
+      } else {
+        console.warn(`⚠️ Transfer sync: rawMaterial=${!!rawMaterial} fromStoreDoc=${!!fromStoreDoc}`)
       }
 
       if (rawMaterial && toStoreDoc) {
@@ -534,8 +537,8 @@ exports.transferStock = async (req, res) => {
           })
           await toLocInv.save()
         }
+        console.log(`📦 LocationInventory credited: ${productName} +${quantity} to ${toStore}`)
       }
-      console.log(`📦 LocationInventory synced for transfer: ${productName} -${quantity} from ${fromStore}, +${quantity} to ${toStore}`)
     } catch (syncErr) {
       console.warn("⚠️ LocationInventory sync in transfer:", syncErr.message)
     }
