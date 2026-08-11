@@ -288,19 +288,6 @@ class GRNController {
                 await locInv.save();
               }
 
-              // Create inward stock transaction
-              const transaction = new StockTransaction({
-                type: 'inward',
-                locationId: syncStoreLocationId,
-                rawMaterialId: rawMaterial._id,
-                quantity: acceptedQty,
-                costPrice: item.rate || 0,
-                reference: finalGRNNumber || grn.grnNumber,
-                source: 'GRN Received',
-                notes: `From GRN ${finalGRNNumber || grn.grnNumber}, Supplier: ${grnData.supplier || ''}`,
-              });
-              await transaction.save();
-
               console.log(`📦 LocationInventory synced: ${item.product} +${acceptedQty} → Store ${syncStoreLocationId}`);
             }
           } else {
