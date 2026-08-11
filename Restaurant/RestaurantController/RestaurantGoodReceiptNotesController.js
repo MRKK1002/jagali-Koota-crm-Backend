@@ -815,11 +815,11 @@ class GRNController {
         });
       }
 
-      // Prevent deletion of approved GRNs
-      if (grn.status === 'Approved') {
+      // Prevent deletion of approved GRNs unless force=true query param is set
+      if (grn.status === 'Approved' && req.query.force !== 'true') {
         return res.status(400).json({
           status: 'error',
-          message: 'Cannot delete approved GRN'
+          message: 'Cannot delete approved GRN. Add ?force=true to override.'
         });
       }
 
