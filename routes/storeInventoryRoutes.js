@@ -23,6 +23,9 @@ router.get("/alerts/low-stock", storeInventoryController.getLowStockAlerts)
 // Get stock transactions for a store
 router.get("/store/:storeId/transactions", storeInventoryController.getStoreTransactions)
 
+// Transfer stock between store locations
+router.post("/transfer", storeInventoryController.transferStock)
+
 module.exports = router
 
 

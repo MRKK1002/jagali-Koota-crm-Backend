@@ -382,3 +382,129 @@ exports.getStoreTransactions = async (req, res) => {
 
 
 
+
+// Transfer stock between store locations (updates GRN item storeType)
+exports.transferStock = async (req, res) => {
+  try {
+    const { productName, fromStore, toStore, quantity, notes } = req.body
+
+    if (!productName || !fromStore || !toStore || !quantity) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide productName, fromStore, toStore, and quantity",
+      })
+    }
+
+    if (fromStore === toStore) {
+      return res.status(400).json({
+        success: false,
+        message: "Source and destination stores cannot be the same",
+      })
+    }
+
+    if (Number(quantity) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Quantity must be greater than 0",
+      })
+    }
+
+    // Find the GRN that has this product in the source store
+    const GoodsReceiptNote = require("../Restaurant/RestautantModel/RestaurantGoodReceiptNotesmodel")
+
+    // Find GRNs containing items for this product
+    const grns = await GoodsReceiptNote.find({
+      "items.product": productName,
+    }).sort({ createdAt: -1 })
+
+    if (!grns || grns.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `No GRN found with product "${productName}"`,
+      })
+    }
+
+    // Find the specific GRN item matching fromStore
+    let targetGRN = null
+    let targetItemIndex = -1
+
+    for (const grn of grns) {
+      const idx = grn.items.findIndex(
+        (item) => item.product === productName && (item.storeType === fromStore || (!item.storeType && fromStore === "Main Store"))
+      )
+      if (idx !== -1) {
+        targetGRN = grn
+        targetItemIndex = idx
+        break
+      }
+    }
+
+    if (!targetGRN || targetItemIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: `Product "${productName}" not found in store "${fromStore}"`,
+      })
+    }
+
+    const item = targetGRN.items[targetItemIndex]
+    const availableQty = Number(item.receivedQty || item.quantity || 0) - Number(item.consumedQuantity || 0)
+
+    if (Number(quantity) > availableQty) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot transfer ${quantity}. Only ${availableQty} available in "${fromStore}"`,
+      })
+    }
+
+    // If transferring full quantity, just change the storeType
+    if (Number(quantity) === availableQty) {
+      targetGRN.items[targetItemIndex].storeType = toStore
+      await targetGRN.save()
+    } else {
+      // Partial transfer: reduce source quantity, create a new item entry for destination
+      const transferQty = Number(quantity)
+      const originalReceivedQty = Number(item.receivedQty || item.quantity || 0)
+
+      // Reduce the source item's received quantity
+      targetGRN.items[targetItemIndex].receivedQty = originalReceivedQty - transferQty
+      targetGRN.items[targetItemIndex].quantity = originalReceivedQty - transferQty
+      if (item.acceptedQty) {
+        targetGRN.items[targetItemIndex].acceptedQty = Math.max(0, Number(item.acceptedQty) - transferQty)
+      }
+
+      // Add a new item entry for the destination store
+      const newItem = {
+        ...item.toObject ? item.toObject() : { ...item },
+        storeType: toStore,
+        receivedQty: transferQty,
+        quantity: transferQty,
+        acceptedQty: transferQty,
+        consumedQuantity: 0,
+      }
+      delete newItem._id
+      targetGRN.items.push(newItem)
+
+      await targetGRN.save()
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Transferred ${quantity} of "${productName}" from "${fromStore}" to "${toStore}"`,
+      data: {
+        productName,
+        fromStore,
+        toStore,
+        quantity: Number(quantity),
+        notes: notes || "",
+        date: new Date(),
+      },
+    })
+  } catch (error) {
+    console.error("Error transferring stock:", error)
+    res.status(500).json({
+      success: false,
+      message: "Failed to transfer stock",
+      error: error.message,
+    })
+  }
+}
