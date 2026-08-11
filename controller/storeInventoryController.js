@@ -409,10 +409,9 @@ exports.transferStock = async (req, res) => {
       })
     }
 
-    // Find the GRN that has this product in the source store
     const GoodsReceiptNote = require("../Restaurant/RestautantModel/RestaurantGoodReceiptNotesmodel")
 
-    // Find GRNs containing items for this product
+    // Find ALL GRNs containing items for this product
     const grns = await GoodsReceiptNote.find({
       "items.product": productName,
     }).sort({ createdAt: -1 })
@@ -424,67 +423,76 @@ exports.transferStock = async (req, res) => {
       })
     }
 
-    // Find the specific GRN item matching fromStore
-    let targetGRN = null
-    let targetItemIndex = -1
-
+    // Collect all matching items across all GRNs and calculate total available
+    const matchingItems = []
     for (const grn of grns) {
-      const idx = grn.items.findIndex(
-        (item) => item.product === productName && (item.storeType === fromStore || (!item.storeType && fromStore === "Main Store"))
-      )
-      if (idx !== -1) {
-        targetGRN = grn
-        targetItemIndex = idx
-        break
-      }
+      grn.items.forEach((item, idx) => {
+        if (item.product === productName && (item.storeType === fromStore || (!item.storeType && fromStore === "Main Store"))) {
+          const available = Number(item.receivedQty || item.quantity || 0) - Number(item.consumedQuantity || 0)
+          if (available > 0) {
+            matchingItems.push({ grn, idx, available })
+          }
+        }
+      })
     }
 
-    if (!targetGRN || targetItemIndex === -1) {
+    const totalAvailable = matchingItems.reduce((sum, m) => sum + m.available, 0)
+
+    if (totalAvailable <= 0) {
       return res.status(404).json({
         success: false,
-        message: `Product "${productName}" not found in store "${fromStore}"`,
+        message: `No available stock for "${productName}" in "${fromStore}"`,
       })
     }
 
-    const item = targetGRN.items[targetItemIndex]
-    const availableQty = Number(item.receivedQty || item.quantity || 0) - Number(item.consumedQuantity || 0)
-
-    if (Number(quantity) > availableQty) {
+    if (Number(quantity) > totalAvailable) {
       return res.status(400).json({
         success: false,
-        message: `Cannot transfer ${quantity}. Only ${availableQty} available in "${fromStore}"`,
+        message: `Cannot transfer ${quantity}. Only ${totalAvailable} available in "${fromStore}"`,
       })
     }
 
-    // If transferring full quantity, just change the storeType
-    if (Number(quantity) === availableQty) {
-      targetGRN.items[targetItemIndex].storeType = toStore
-      await targetGRN.save()
-    } else {
-      // Partial transfer: reduce source quantity, create a new item entry for destination
-      const transferQty = Number(quantity)
-      const originalReceivedQty = Number(item.receivedQty || item.quantity || 0)
+    // Distribute the transfer across matching items (FIFO — oldest first)
+    let remaining = Number(quantity)
+    const grnsToSave = new Set()
 
-      // Reduce the source item's received quantity
-      targetGRN.items[targetItemIndex].receivedQty = originalReceivedQty - transferQty
-      targetGRN.items[targetItemIndex].quantity = originalReceivedQty - transferQty
-      if (item.acceptedQty) {
-        targetGRN.items[targetItemIndex].acceptedQty = Math.max(0, Number(item.acceptedQty) - transferQty)
+    for (const match of matchingItems.reverse()) { // reverse to process oldest first
+      if (remaining <= 0) break
+
+      const item = match.grn.items[match.idx]
+      const transferFromThis = Math.min(remaining, match.available)
+
+      if (transferFromThis === match.available) {
+        // Move entire item to new store
+        match.grn.items[match.idx].storeType = toStore
+      } else {
+        // Partial: reduce source, add new entry for destination
+        const originalReceivedQty = Number(item.receivedQty || item.quantity || 0)
+        match.grn.items[match.idx].receivedQty = originalReceivedQty - transferFromThis
+        match.grn.items[match.idx].quantity = originalReceivedQty - transferFromThis
+        if (item.acceptedQty) {
+          match.grn.items[match.idx].acceptedQty = Math.max(0, Number(item.acceptedQty) - transferFromThis)
+        }
+
+        const newItem = {
+          ...(item.toObject ? item.toObject() : { ...item }),
+          storeType: toStore,
+          receivedQty: transferFromThis,
+          quantity: transferFromThis,
+          acceptedQty: transferFromThis,
+          consumedQuantity: 0,
+        }
+        delete newItem._id
+        match.grn.items.push(newItem)
       }
 
-      // Add a new item entry for the destination store
-      const newItem = {
-        ...item.toObject ? item.toObject() : { ...item },
-        storeType: toStore,
-        receivedQty: transferQty,
-        quantity: transferQty,
-        acceptedQty: transferQty,
-        consumedQuantity: 0,
-      }
-      delete newItem._id
-      targetGRN.items.push(newItem)
+      remaining -= transferFromThis
+      grnsToSave.add(match.grn)
+    }
 
-      await targetGRN.save()
+    // Save all modified GRNs
+    for (const grn of grnsToSave) {
+      await grn.save()
     }
 
     res.status(200).json({
