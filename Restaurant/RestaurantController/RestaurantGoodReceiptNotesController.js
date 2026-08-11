@@ -32,6 +32,7 @@ class GRNController {
         poId,
         poNumber, // PO Number for display
         storeType,
+        storeLocationId, // Store location ObjectId
         receivedBy,
         createdBy,
         isManualEntry: isManualEntryFromBody // Flag to indicate manual entry (no GRN number needed)
@@ -251,9 +252,9 @@ class GRNController {
         try {
           const RawMaterial = require('../RestautantModel/RestaurantRawMaterialModel');
           const { LocationInventory, StockTransaction } = Inventory;
-          const storeLocationId = grnData.storeLocationId || grnData.storeLocation?.id;
+          const syncStoreLocationId = storeLocationId || grnData.storeLocationId || grnData.storeLocation?.id;
 
-          if (storeLocationId) {
+          if (syncStoreLocationId) {
             for (const item of (grnData.items || [])) {
               const acceptedQty = Number(item.acceptedQty || item.receivedQty || item.quantity || 0);
               if (acceptedQty <= 0) continue;
@@ -267,7 +268,7 @@ class GRNController {
 
               // Find or create LocationInventory record
               let locInv = await LocationInventory.findOne({
-                locationId: storeLocationId,
+                locationId: syncStoreLocationId,
                 rawMaterialId: rawMaterial._id,
               });
 
@@ -278,7 +279,7 @@ class GRNController {
                 await locInv.save();
               } else {
                 locInv = new LocationInventory({
-                  locationId: storeLocationId,
+                  locationId: syncStoreLocationId,
                   rawMaterialId: rawMaterial._id,
                   quantity: acceptedQty,
                   costPrice: item.rate || 0,
@@ -290,7 +291,7 @@ class GRNController {
               // Create inward stock transaction
               const transaction = new StockTransaction({
                 type: 'inward',
-                locationId: storeLocationId,
+                locationId: syncStoreLocationId,
                 rawMaterialId: rawMaterial._id,
                 quantity: acceptedQty,
                 costPrice: item.rate || 0,
@@ -300,7 +301,7 @@ class GRNController {
               });
               await transaction.save();
 
-              console.log(`📦 LocationInventory synced: ${item.product} +${acceptedQty} → Store ${storeLocationId}`);
+              console.log(`📦 LocationInventory synced: ${item.product} +${acceptedQty} → Store ${syncStoreLocationId}`);
             }
           } else {
             console.warn('⚠️ LocationInventory sync skipped: no storeLocationId on GRN');
