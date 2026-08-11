@@ -877,30 +877,35 @@ class GRNController {
       }
 
       // Reverse LocationInventory before deleting
-      if (grn.storeLocationId || grn.storeLocation?.id) {
+      if (grn.storeType) {
         try {
           const RawMaterial = require('../RestautantModel/RestaurantRawMaterialModel');
           const { LocationInventory } = Inventory;
-          const storeLocId = grn.storeLocationId || grn.storeLocation?.id;
+          const StoreLocationModel = require('../../model/storeLocationModel');
+          const storeDoc = await StoreLocationModel.findOne({ name: grn.storeType });
 
-          for (const item of (grn.items || [])) {
-            const acceptedQty = Number(item.acceptedQty || item.receivedQty || item.quantity || 0);
-            if (acceptedQty <= 0) continue;
+          if (storeDoc) {
+            for (const item of (grn.items || [])) {
+              const acceptedQty = Number(item.acceptedQty || item.receivedQty || item.quantity || 0);
+              if (acceptedQty <= 0) continue;
 
-            const rawMaterial = await RawMaterial.findOne({ name: item.product });
-            if (!rawMaterial) continue;
+              const rawMaterial = await RawMaterial.findOne({ name: item.product });
+              if (!rawMaterial) continue;
 
-            const locInv = await LocationInventory.findOne({
-              locationId: storeLocId,
-              rawMaterialId: rawMaterial._id,
-            });
+              const locInv = await LocationInventory.findOne({
+                locationId: storeDoc._id,
+                rawMaterialId: rawMaterial._id,
+              });
 
-            if (locInv) {
-              locInv.quantity = Math.max(0, locInv.quantity - acceptedQty);
-              locInv.lastUpdated = new Date();
-              await locInv.save();
-              console.log(`📦 LocationInventory reversed: ${item.product} -${acceptedQty} from store ${storeLocId}`);
+              if (locInv) {
+                locInv.quantity = Math.max(0, locInv.quantity - acceptedQty);
+                locInv.lastUpdated = new Date();
+                await locInv.save();
+                console.log(`📦 LocationInventory reversed: ${item.product} -${acceptedQty} from store ${grn.storeType}`);
+              }
             }
+          } else {
+            console.warn(`⚠️ Store "${grn.storeType}" not found in StoreLocation collection, cannot reverse`);
           }
         } catch (syncErr) {
           console.error('⚠️ LocationInventory reversal error:', syncErr.message);

@@ -995,7 +995,7 @@ exports.update = async (req, res) => {
 exports.remove = async (req, res) => {
   try {
     // Check if any GRN references this PO
-    const GoodsReceiptNote = require('../RestautantModel/RestaurantGoodReceiptNotesmodel');
+    const GoodsReceiptNote = require('../../model/GoodsReceiptNote');
     const linkedGRNs = await GoodsReceiptNote.find({ poId: req.params.id });
     if (linkedGRNs.length > 0) {
       return res.status(400).json({

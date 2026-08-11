@@ -107,10 +107,11 @@ exports.createDistribution = async (req, res) => {
       const { LocationInventory } = require('../../model/inventoryModel');
       const StoreLocation = require('../../model/storeLocationModel');
       const storeDoc = await StoreLocation.findOne({ name: storeLocation });
-      if (storeDoc && rawMaterial) {
+      const matDoc = await RawMaterial.findOne({ name: productName });
+      if (storeDoc && matDoc) {
         const locInv = await LocationInventory.findOne({
           locationId: storeDoc._id,
-          rawMaterialId: rawMaterial._id,
+          rawMaterialId: matDoc._id,
         });
         if (locInv && locInv.quantity >= baseQuantityDeducted) {
           locInv.quantity -= baseQuantityDeducted;
