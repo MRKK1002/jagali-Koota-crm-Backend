@@ -185,11 +185,25 @@ goodsReceiptNoteSchema.pre('save', function(next) {
 
 // Static method to generate GRN number
 goodsReceiptNoteSchema.statics.generateGRNNumber = async function() {
-  const count = await this.countDocuments();
   const currentDate = new Date();
   const year = currentDate.getFullYear();
   const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-  return `GRN-${year}${month}-${String(count + 1).padStart(4, '0')}`;
+  const prefix = `GRN-${year}${month}-`;
+  
+  // Find the highest GRN number for this month
+  const lastGRN = await this.findOne(
+    { grnNumber: { $regex: `^${prefix}` } },
+    { grnNumber: 1 },
+    { sort: { grnNumber: -1 } }
+  ).lean();
+  
+  let nextNumber = 1;
+  if (lastGRN && lastGRN.grnNumber) {
+    const lastNum = parseInt(lastGRN.grnNumber.replace(prefix, ''), 10);
+    if (!isNaN(lastNum)) nextNumber = lastNum + 1;
+  }
+  
+  return `${prefix}${String(nextNumber).padStart(4, '0')}`;
 };
 
 // Instance method to approve GRN
