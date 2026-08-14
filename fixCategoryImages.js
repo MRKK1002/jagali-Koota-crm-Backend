@@ -89,7 +89,7 @@ mongoose.connect(process.env.MONGO_URI).then(async () => {
   updated.forEach(c => {
     const rel = (c.image || '').replace(/\\/g, '/').replace(/^\/+/, '');
     const exists = rel ? fs.existsSync(path.join(BACKEND, rel)) : false;
-    const url = rel ? `http://localhost:9000/${rel}` : 'null';
+    const url = rel ? `https://billing.jagalikoota.com/${rel}` : 'null';
     console.log(`  ${c.name}: ${exists ? '✅' : '❌'} ${url}`);
   });
 
