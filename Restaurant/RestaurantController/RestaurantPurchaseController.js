@@ -301,6 +301,54 @@ console.log("PurchaseOrder model loaded:", {
 //
 // Filtering happens in MongoDB rather than in the browser so the client no
 // longer downloads every purchase order just to filter a handful.
+
+// Get last purchase rate for given material IDs
+// GET /purchase-orders/last-rates?materialIds=id1,id2,...
+// Returns { data: { materialId: rate, ... } }
+exports.getLastRates = async (req, res) => {
+  try {
+    const { materialIds } = req.query;
+    if (!materialIds) {
+      return res.json({ success: true, data: {} });
+    }
+    const ids = materialIds.split(",").filter(id => mongoose.isValidObjectId(id.trim()));
+    if (ids.length === 0) {
+      return res.json({ success: true, data: {} });
+    }
+
+    // For each material, find the most recent PO that contains it and get the rate
+    const pipeline = [
+      { $unwind: "$items" },
+      { $match: { "items.name": { $in: ids.map(id => new mongoose.Types.ObjectId(id)) } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$items.name",
+          lastRate: { $first: "$items.rate" },
+          lastDate: { $first: "$orderDate" },
+          poNumber: { $first: "$purchaseOrderId" },
+        },
+      },
+    ];
+
+    const results = await PurchaseOrder.aggregate(pipeline);
+
+    const rateMap = {};
+    results.forEach((r) => {
+      rateMap[r._id.toString()] = {
+        rate: r.lastRate,
+        date: r.lastDate,
+        poNumber: r.poNumber,
+      };
+    });
+
+    res.json({ success: true, data: rateMap });
+  } catch (err) {
+    console.error("Error fetching last rates:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 exports.getAll = async (req, res) => {
   try {
     const { search, month, status, paymentStatus, supplierId, page, limit } = req.query;

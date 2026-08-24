@@ -3,6 +3,7 @@ const router = express.Router();
 const controller = require("../RestaurantController/RestaurantPurchaseController");
 
 router.get("/", controller.getAll);
+router.get("/last-rates", controller.getLastRates);
 router.get("/pending", controller.getPendingPOs);
 router.get("/stats", controller.getPOStats);
 router.get("/:id", controller.getOne);
