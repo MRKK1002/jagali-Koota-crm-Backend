@@ -459,3 +459,36 @@ exports.getPendingForStore = async (req, res) => {
     });
   }
 };
+
+// Get available stock for all raw materials (aggregated from GRN availableQuantity)
+// Returns: { data: { "Product Name": totalAvailable, ... } }
+exports.getAvailableStock = async (req, res) => {
+  try {
+    const pipeline = [
+      { $unwind: "$items" },
+      { $match: { "items.availableQuantity": { $gt: 0 } } },
+      {
+        $group: {
+          _id: "$items.product",
+          totalAvailable: { $sum: "$items.availableQuantity" },
+        },
+      },
+    ];
+
+    const results = await GoodsReceiptNote.aggregate(pipeline);
+
+    const stockMap = {};
+    results.forEach((r) => {
+      stockMap[r._id] = r.totalAvailable;
+    });
+
+    res.json({ success: true, data: stockMap });
+  } catch (error) {
+    console.error("Error fetching available stock:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching available stock",
+      error: error.message,
+    });
+  }
+};

@@ -14,6 +14,7 @@ try {
     getIndentsByDepartment: typeof indentController.getIndentsByDepartment,
     getPendingForHOD: typeof indentController.getPendingForHOD,
     getPendingForStore: typeof indentController.getPendingForStore,
+    getAvailableStock: typeof indentController.getAvailableStock,
   });
 
   // Create a new indent
@@ -27,6 +28,9 @@ try {
 
   // Get pending indents for Store Manager dashboard
   router.get("/pending/store", indentController.getPendingForStore);
+
+  // Get available stock for all raw materials (aggregated from GRNs)
+  router.get("/available-stock", indentController.getAvailableStock);
 
   // Get indents by department
   router.get("/department/:department", indentController.getIndentsByDepartment);
