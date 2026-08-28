@@ -3,6 +3,8 @@ const GoodsReceiptNote = require("../../model/GoodsReceiptNote");
 const RawMaterial = require("../RestautantModel/RestaurantRawMaterialModel");
 const UnitConversion = require("../../model/UnitConversionModel");
 const { addStock } = require("./DepartmentStockController");
+const DepartmentStock = require("../RestautantModel/DepartmentStockModel");
+const Department = require("../../model/departmentModel");
 
 
 async function getConversionFactor(fromUnit, toUnit) {
@@ -488,6 +490,116 @@ exports.getAvailableStock = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error fetching available stock",
+      error: error.message,
+    });
+  }
+};
+
+// Change the department of an indent.
+// Allowed for ANY status. If the indent has already been "Store Issued",
+// the department-wise stock that was credited to the old department is moved
+// to the new department (per item, by issuedQuantity) so DepartmentStock stays in sync.
+exports.changeDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { department: newDepartment, changedBy } = req.body;
+
+    if (!newDepartment || !newDepartment.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "New department is required",
+      });
+    }
+
+    const indent = await Indent.findById(id);
+    if (!indent) {
+      return res.status(404).json({
+        success: false,
+        message: "Indent not found",
+      });
+    }
+
+    const targetDept = newDepartment.trim();
+    const oldDepartment = indent.department;
+
+    if (oldDepartment === targetDept) {
+      return res.status(400).json({
+        success: false,
+        message: "Indent is already in this department",
+      });
+    }
+
+    // Validate the target department exists and is active
+    const deptExists = await Department.findOne({ name: targetDept, isActive: true });
+    if (!deptExists) {
+      return res.status(400).json({
+        success: false,
+        message: `Department "${targetDept}" does not exist`,
+      });
+    }
+
+    // If material was already issued, move the department-wise stock.
+    const stockMoves = [];
+    if (indent.status === "Store Issued") {
+      for (const item of indent.items) {
+        const movedQty = item.issuedQuantity;
+        if (!movedQty || movedQty <= 0 || !item.rawMaterial) continue;
+
+        // Decrement from old department (never below zero)
+        const oldStock = await DepartmentStock.findOne({
+          department: oldDepartment,
+          branch: indent.branch,
+          rawMaterial: item.rawMaterial,
+        });
+        if (oldStock) {
+          oldStock.quantity = Math.max(0, (oldStock.quantity || 0) - movedQty);
+          await oldStock.save();
+        }
+
+        // Credit new department (upsert)
+        await addStock(
+          targetDept,
+          indent.branch,
+          item.rawMaterial,
+          item.productName,
+          movedQty,
+          item.requestedUnit
+        );
+
+        stockMoves.push({
+          productName: item.productName,
+          quantity: movedQty,
+          unit: item.requestedUnit,
+        });
+
+        console.log(
+          `🔀 Moved ${movedQty} ${item.requestedUnit} of "${item.productName}" from ${oldDepartment} → ${targetDept} (branch: ${indent.branch})`
+        );
+      }
+    }
+
+    // Update indent department
+    indent.department = targetDept;
+    await indent.save();
+
+    console.log(
+      `✅ Indent ${indent.indentNumber} department changed: ${oldDepartment} → ${targetDept}${changedBy ? ` by ${changedBy}` : ""}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message:
+        stockMoves.length > 0
+          ? `Department changed and stock moved from "${oldDepartment}" to "${targetDept}"`
+          : `Department changed to "${targetDept}"`,
+      data: indent,
+      stockMoves,
+    });
+  } catch (error) {
+    console.error("Error changing indent department:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error changing indent department",
       error: error.message,
     });
   }

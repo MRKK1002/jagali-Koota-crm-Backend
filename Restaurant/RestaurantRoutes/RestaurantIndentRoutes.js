@@ -15,6 +15,7 @@ try {
     getPendingForHOD: typeof indentController.getPendingForHOD,
     getPendingForStore: typeof indentController.getPendingForStore,
     getAvailableStock: typeof indentController.getAvailableStock,
+    changeDepartment: typeof indentController.changeDepartment,
   });
 
   // Create a new indent
@@ -46,6 +47,9 @@ try {
 
   // Cancel indent
   router.put("/:id/cancel", indentController.cancelIndent);
+
+  // Change department (moves department-wise stock if already issued)
+  router.put("/:id/change-department", indentController.changeDepartment);
 
   console.log("✓ Restaurant Indent routes registered successfully");
 } catch (error) {
