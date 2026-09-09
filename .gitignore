@@ -1,2 +1,6 @@
 node_modules
 .env
+
+# Temp maintenance scripts and data backups (contain live DB data)
+_tmp_*.js
+_backup_*.json

@@ -51,12 +51,48 @@ class GRNController {
         });
       }
 
-      // Allow multiple GRNs per PO for partial deliveries
-      // Duplicate check removed to support multiple shipments for the same PO
+      // Allow multiple GRNs per PO for partial deliveries, but block accidental
+      // burst-duplicates (double-clicks / retries that create identical GRNs
+      // seconds apart — see the 10x PO-045 incident). A legitimate partial
+      // delivery differs in items/quantities OR is spaced out in time, so it is
+      // not affected by this guard.
       if (poId && !isManualEntry) {
         const existingGRNs = await GoodsReceiptNote.find({ poId: poId });
         if (existingGRNs.length > 0) {
-          console.log(`ℹ️ Found ${existingGRNs.length} existing GRN(s) for PO ${poId}. Creating additional GRN for partial delivery.`);
+          console.log(`ℹ️ Found ${existingGRNs.length} existing GRN(s) for PO ${poId}. Checking for burst duplicates before creating.`);
+
+          // Content signature: sorted product:acceptedQty@rate list + totalAmount.
+          const buildSignature = (its, total) => {
+            const line = (its || [])
+              .map((it) => {
+                const recv = Number(it.receivedQty ?? it.quantity ?? 0);
+                const rej = Number(it.rejectedQty ?? 0);
+                const acc = Number(it.acceptedQty ?? (recv - rej) ?? 0);
+                return `${String(it.product || '').trim()}:${acc}@${Number(it.rate ?? 0)}`;
+              })
+              .sort()
+              .join('|');
+            return `${Number(total || 0).toFixed(2)}#${line}`;
+          };
+
+          const incomingSig = buildSignature(items, totalAmount);
+          const BURST_WINDOW_MS = 60 * 1000; // 60 seconds
+          const now = Date.now();
+
+          const burstDuplicate = existingGRNs.find((g) => {
+            const age = now - new Date(g.createdAt).getTime();
+            if (age > BURST_WINDOW_MS) return false; // old enough to be a real separate delivery
+            return buildSignature(g.items, g.totalAmount) === incomingSig;
+          });
+
+          if (burstDuplicate) {
+            console.warn(`🛑 Blocked duplicate GRN for PO ${poId}: identical to ${burstDuplicate.grnNumber} created ${((now - new Date(burstDuplicate.createdAt).getTime()) / 1000).toFixed(1)}s ago`);
+            return res.status(409).json({
+              status: 'error',
+              message: `A GRN with identical items for this Purchase Order was just created (${burstDuplicate.grnNumber}). This looks like a duplicate submission. If this is a genuine second delivery, please wait a moment and try again.`,
+              duplicateOf: burstDuplicate.grnNumber
+            });
+          }
         }
       }
 
