@@ -31,6 +31,60 @@ exports.getAllDepartmentStock = async (req, res) => {
   }
 };
 
+// Stock receipt history per department/material.
+// DepartmentStock only stores a running quantity plus the LAST issue date, so the
+// arrival history is derived from the indents that credited it — the same source
+// the stock totals are built from. Returns a map keyed by
+// "department|branch|rawMaterialId" -> [{ date, quantity, unit, indentNumber }]
+// sorted oldest → newest.
+exports.getStockReceiptHistory = async (req, res) => {
+  try {
+    const Indent = require("../RestautantModel/RestaurantIndentModel");
+    const { department, branch } = req.query;
+
+    const filter = { status: "Store Issued" };
+    if (department) filter.department = department;
+    if (branch) filter.branch = branch;
+
+    const indents = await Indent.find(filter)
+      .select("indentNumber department branch items storeApproval createdAt updatedAt")
+      .lean();
+
+    const history = {};
+    for (const ind of indents) {
+      // Prefer the actual store-issue timestamp; fall back to record dates.
+      const issuedAt =
+        ind.storeApproval?.approvedAt || ind.updatedAt || ind.createdAt || null;
+
+      for (const item of ind.items || []) {
+        if (!item.rawMaterial) continue;
+        const qty = Number(item.issuedQuantity || 0);
+        if (qty <= 0) continue;
+
+        const key = `${ind.department}|${ind.branch}|${String(item.rawMaterial)}`;
+        if (!history[key]) history[key] = [];
+        history[key].push({
+          date: issuedAt,
+          quantity: qty,
+          unit: item.requestedUnit || "",
+          indentNumber: ind.indentNumber,
+          productName: item.productName,
+        });
+      }
+    }
+
+    // Sort each material's receipts oldest → newest
+    Object.values(history).forEach((list) =>
+      list.sort((a, b) => new Date(a.date) - new Date(b.date))
+    );
+
+    res.json({ success: true, data: history });
+  } catch (err) {
+    console.error("Error building stock receipt history:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // Deduct stock by recipe - Given order items, look up recipes and deduct from department stock
 exports.deductByRecipe = async (req, res) => {
   try {
