@@ -538,62 +538,109 @@ exports.changeDepartment = async (req, res) => {
       });
     }
 
-    // If material was already issued, move the department-wise stock.
-    const stockMoves = [];
-    if (indent.status === "Store Issued") {
-      for (const item of indent.items) {
-        const movedQty = item.issuedQuantity;
-        if (!movedQty || movedQty <= 0 || !item.rawMaterial) continue;
+    // ATOMIC CLAIM — flip the department in a single conditional update that only
+    // succeeds while the indent is still in `oldDepartment`. Concurrent duplicate
+    // requests (rapid double-clicks) lose the race here and move NO stock at all.
+    // Without this, every concurrent request credited the target department a full
+    // quantity while the source was already drained, inventing stock out of nothing.
+    const claimed = await Indent.findOneAndUpdate(
+      { _id: id, department: oldDepartment },
+      { $set: { department: targetDept } },
+      { new: true }
+    );
 
-        // Decrement from old department (never below zero)
+    if (!claimed) {
+      const current = await Indent.findById(id).select("department").lean();
+      console.warn(
+        `🛑 Duplicate/stale change-department for indent ${id}: expected "${oldDepartment}", now "${current?.department}". No stock moved.`
+      );
+      return res.status(409).json({
+        success: false,
+        message: `This indent was just moved to "${current?.department}" by another request. No stock was moved twice.`,
+        currentDepartment: current?.department,
+      });
+    }
+
+    // If material was already issued, move the department-wise stock.
+    // CONSERVATIVE: credit the target only what was actually removed from the
+    // source, so a move can never create stock.
+    const stockMoves = [];
+    const skipped = [];
+    if (claimed.status === "Store Issued") {
+      for (const item of claimed.items) {
+        const requestedQty = Number(item.issuedQuantity || 0);
+        if (!requestedQty || requestedQty <= 0 || !item.rawMaterial) continue;
+
         const oldStock = await DepartmentStock.findOne({
           department: oldDepartment,
-          branch: indent.branch,
+          branch: claimed.branch,
           rawMaterial: item.rawMaterial,
         });
-        if (oldStock) {
-          oldStock.quantity = Math.max(0, (oldStock.quantity || 0) - movedQty);
-          await oldStock.save();
+
+        const available = oldStock ? Number(oldStock.quantity || 0) : 0;
+        const actuallyMoved = Math.min(available, requestedQty);
+
+        // Nothing there to move — do NOT credit the target department.
+        if (actuallyMoved <= 0) {
+          skipped.push({
+            productName: item.productName,
+            requested: requestedQty,
+            available,
+          });
+          console.warn(
+            `⚠️ Skipped "${item.productName}": ${oldDepartment} has ${available}, needed ${requestedQty}. Nothing credited to ${targetDept}.`
+          );
+          continue;
         }
 
-        // Credit new department (upsert)
+        oldStock.quantity = available - actuallyMoved;
+        await oldStock.save();
+
         await addStock(
           targetDept,
-          indent.branch,
+          claimed.branch,
           item.rawMaterial,
           item.productName,
-          movedQty,
+          actuallyMoved,
           item.requestedUnit
         );
 
         stockMoves.push({
           productName: item.productName,
-          quantity: movedQty,
+          quantity: actuallyMoved,
+          requested: requestedQty,
           unit: item.requestedUnit,
         });
 
         console.log(
-          `🔀 Moved ${movedQty} ${item.requestedUnit} of "${item.productName}" from ${oldDepartment} → ${targetDept} (branch: ${indent.branch})`
+          `🔀 Moved ${actuallyMoved}/${requestedQty} ${item.requestedUnit} of "${item.productName}" from ${oldDepartment} → ${targetDept} (branch: ${claimed.branch})`
         );
       }
     }
 
-    // Update indent department
-    indent.department = targetDept;
-    await indent.save();
+    const indentAfter = claimed;
 
     console.log(
-      `✅ Indent ${indent.indentNumber} department changed: ${oldDepartment} → ${targetDept}${changedBy ? ` by ${changedBy}` : ""}`
+      `✅ Indent ${indentAfter.indentNumber} department changed: ${oldDepartment} → ${targetDept}${changedBy ? ` by ${changedBy}` : ""}`
     );
+
+    let message;
+    if (stockMoves.length > 0 && skipped.length === 0) {
+      message = `Department changed and stock moved from "${oldDepartment}" to "${targetDept}"`;
+    } else if (stockMoves.length > 0 && skipped.length > 0) {
+      message = `Department changed. Moved ${stockMoves.length} item(s); ${skipped.length} item(s) had no stock in "${oldDepartment}" and were not credited.`;
+    } else if (stockMoves.length === 0 && skipped.length > 0) {
+      message = `Department changed to "${targetDept}", but no stock was moved — "${oldDepartment}" had none of these materials.`;
+    } else {
+      message = `Department changed to "${targetDept}"`;
+    }
 
     res.status(200).json({
       success: true,
-      message:
-        stockMoves.length > 0
-          ? `Department changed and stock moved from "${oldDepartment}" to "${targetDept}"`
-          : `Department changed to "${targetDept}"`,
-      data: indent,
+      message,
+      data: indentAfter,
       stockMoves,
+      skipped,
     });
   } catch (error) {
     console.error("Error changing indent department:", error);
